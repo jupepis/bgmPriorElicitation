@@ -54,33 +54,23 @@ betaBinParameters <- function(llmobject,
     warning("Consider using more permutations, in order to be able to properly estimate the parameters of the Beta distribution")
   }
   
-  p <- length(llmobject$arguments$variable_list)
-  no_edges <- p*(p-1)/2
-  
   # check the class of the llm object
   if (inherits(llmobject, "llmPriorElicit") ||
       inherits(llmobject, "llmPriorElicitSimple")) {
     df <- llmobject$raw_LLM
-    sum_ones_vector <- df %>%
-      group_by(iteration) %>%
-      summarize(sum_ones = sum(ifelse(content == "I", 1, 0))) %>%
-      pull(sum_ones)
-    bb <- estimate_beta_binomial(sum_ones_vector, n = no_edges)
+    x <- tapply(X = df$content, INDEX = df$pair_index, function(y) length(which(y == "I")))
+    n <- max(df$iteration)
   }
-  
   
   else{
     df <- llmobject$raw_LLM
-    sum_ones_vector <- df %>%
-      group_by(permutation) %>%
-      filter(pair_order == max(pair_order)) %>%
-      mutate(
-        full_sequence = str_match(content, "FULL SEQUENCE: ([IE]+)")[,2],
-        sum_ones = sum(str_count(full_sequence, "I"), na.rm = TRUE)
-      ) %>%
-      pull(sum_ones)
-    bb <- estimate_beta_binomial(sum_ones_vector, n = no_edges)
+    x <- tapply(X = df$content, INDEX = df$pair_index, function(y) length(which(y == "I")))
+    n <- max(df$permutation)
   }
+
+  # estimate Beta-Binomial parameters
+  bb <- estimate_beta_binomial(x = x, n = n)
+
   return(bb)
 }  # end of function 
 

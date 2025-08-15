@@ -211,18 +211,35 @@ parse_decision <- function(content) {
 # function to estimate beta-binomial parameters
 
 estimate_beta_binomial <- function(x, n, method = c("mle", "mom"), force_mom = FALSE) {
+
+  # the model is
+  # p ~ Beta(alpha,beta) x|p ~ Binomial(n,p) 
+  # where:
+  # - "n" is the number of "iterations" (for "llmPriorElicit" and "llmPriorElicitSimple"), or the number of "permutations" (for "llmPriorElicitRelations")
+  # - "x" is the vector of success (sum of I's) across iterations (or permutations)
+
   if (any(x < 0) || any(x > n)) {
     stop("All values of x must be between 0 and n.")
   }
   
+
   # alpha and beta estimated using method of moments (mom)
+  # Mean: E[X] = E[E[X|p]] = E[n * p] = n * E[p] = n * ( alpha/(alpha + beta) )
   m1 <- mean(x)/n
-  m2 <- mean(x^2)/n
-  denominator <- (n*(m2/m1-m1-1)+m1)
-  alpha <- (n*m1-m2)/denominator
-  beta <- ((n-m1)*(n-m2/m1))/denominator
+  # Second factorial moment: E[X(X-1)] = n*(n-1) * [(alpha*(alpha+1))/( (alpha+beta)*(alpha+beta+1) )]
+  m2f <- mean(x*(x-1))/(n*(n-1))
+
+  denom <- m2f-m1^2
+  if(denom <= 0){
+    alpha <- beta <- NA
+  } else{
+    s <- (m1-m2f)/denom
+    alpha <- m1*s
+    beta <- (1-m1)*s
+  }
+  
   init <- c(0,0)
-  if (alpha <= 0 || beta <= 0) {
+  if ((alpha <= 0 || beta <= 0) || (is.na(alpha) || is.na(beta))) {
     warning("Invalid MoM estimates (possibly due to low variance). Falling back to MLE.")
     init <- log(c(mean(x) + 1, n - mean(x) + 1))  # reasonable starting point
   }
@@ -243,14 +260,14 @@ estimate_beta_binomial <- function(x, n, method = c("mle", "mom"), force_mom = F
     
     # Score function
     gradient <- rep(0.0,2)
-    gradient[1] <- sum(digamma(x+alpha) - digamma(n+alpha+beta) - digamma(alpha) + digamma(alpha+beta))
-    gradient[2] <- sum(digamma(n-x+beta) - digamma(n+alpha+beta) - digamma(beta) + digamma(alpha+beta))
+    gradient[1] <- sum(digamma(x+alpha) - digamma(n+alpha+beta) - digamma(alpha) + digamma(alpha+beta))*alpha
+    gradient[2] <- sum(digamma(n-x+beta) - digamma(n+alpha+beta) - digamma(beta) + digamma(alpha+beta))*beta
     
     # Hessian matrix
     hessian <- matrix(0.0,2,2)
-    hessian[1,1] <- sum(trigamma(x+alpha) - trigamma(n+alpha+beta) - trigamma(alpha) + trigamma(alpha+beta))
-    hessian[2,2] <- sum(trigamma(n-x+beta) - trigamma(n+alpha+beta) - trigamma(beta) + trigamma(alpha+beta))
-    hessian[1,2] <- sum(trigamma(alpha+beta) - trigamma(n+alpha+beta))
+    hessian[1,1] <- sum(trigamma(x+alpha) - trigamma(n+alpha+beta) - trigamma(alpha) + trigamma(alpha+beta))*alpha^2 + gradient[1]
+    hessian[2,2] <- sum(trigamma(n-x+beta) - trigamma(n+alpha+beta) - trigamma(beta) + trigamma(alpha+beta))*beta^2 + gradient[2]
+    hessian[1,2] <- sum(trigamma(alpha+beta) - trigamma(n+alpha+beta))*alpha*beta
     hessian[2,1] <- hessian[1,2]
     
     return(list(value = -value, gradient = -gradient, hessian = -hessian)) # return negative because negative loglikelihood
